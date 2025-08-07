@@ -1,9 +1,11 @@
 <!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
-    <title>Логи - GEX Dashboard</title>
-    <meta charset="utf-8">
-    <link rel="stylesheet" href="style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GEX Dashboard - Логи</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/logs.css">
 </head>
 <body>
     <div class="container">
@@ -12,20 +14,286 @@
         </div>
         
         <nav class="nav">
-            <a href="index.html">Главная</a>
-            <a href="logs.html" class="active">Логи</a>
-            <a href="config.html">Конфигурация</a>
-            <a href="rules.html">Правила</a>
+            <a href="/" class="active">Главная</a>
+            <a href="/logs">Логи</a>
+            <a href="/config">Конфигурация</a>
+            <a href="/rules">Правила</a>
         </nav>
 
-        <div class="card">
-            <button class="btn btn-refresh" onclick="refreshLogs()">Обновить логи</button>
-            <div class="log-container" id="log-container">
-                Загрузка логов...
+        <main>
+            <div class="page-header">
+                <h2>📋 Мониторинг логов в реальном времени</h2>
+                <p>Просмотр логов службы NFQ в режиме реального времени</p>
             </div>
-        </div>
+
+            <div class="controls">
+                <div class="controls-left">
+                    <button class="btn success" id="connectBtn" onclick="connectWebSocket()">
+                        🔗 Подключиться
+                    </button>
+                    <button class="btn danger" id="disconnectBtn" onclick="disconnectWebSocket()">
+                        ❌ Отключиться
+                    </button>
+                    <button class="btn" onclick="clearLogs()">
+                        🗑️ Очистить
+                    </button>
+                    <button class="btn" onclick="downloadLogs()">
+                        💾 Скачать
+                    </button>
+                </div>
+                
+                <div class="controls-right">
+                    <div class="auto-scroll-toggle">
+                        <span>Автопрокрутка:</span>
+                        <div class="toggle-switch active" id="autoScrollToggle" onclick="toggleAutoScroll()">
+                            <div class="toggle-slider"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="log-stats">
+                        <div class="stat-item">
+                            <span>📊</span>
+                            <span id="logCount">0 строк</span>
+                        </div>
+                    </div>
+                    
+                    <div class="status disconnected" id="status">
+                        <div class="status-dot"></div>
+                        <span>Не подключен</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="logs-container" id="logContainer">
+                <div class="empty-state">
+                    <h3>🔌 Нет соединения</h3>
+                    <p>Нажмите "Подключиться" для начала мониторинга логов</p>
+                </div>
+            </div>
+        </main>
     </div>
 
-    <script src="app.js"></script>
+    <script>
+        let ws = null;
+        let isConnected = false;
+        let autoScroll = true;
+        let logCount = 0;
+        let reconnectTimer = null;
+
+        function updateStatus(status, message) {
+            const statusElement = document.getElementById('status');
+            const connectBtn = document.getElementById('connectBtn');
+            const disconnectBtn = document.getElementById('disconnectBtn');
+            
+            statusElement.className = `status ${status}`;
+            statusElement.innerHTML = `<div class="status-dot"></div><span>${message}</span>`;
+            
+            isConnected = (status === 'connected');
+            connectBtn.disabled = isConnected;
+            disconnectBtn.disabled = !isConnected;
+        }
+
+        function connectWebSocket() {
+            if (isConnected) return;
+            
+            updateStatus('connecting', 'Подключение...');
+            
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/logs`;
+            
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = function() {
+                console.log('WebSocket подключен');
+                updateStatus('connected', 'Подключен');
+                clearReconnectTimer();
+            };
+            
+            ws.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    if (data.type === 'initial_logs') {
+                        // Начальные логи при подключении
+                        clearLogs();
+                        if (data.lines && data.lines.length > 0) {
+                            data.lines.forEach(line => addLogLine(line, false));
+                        }
+                    } else if (data.type === 'logs') {
+                        // Новые строки логов
+                        if (data.lines && data.lines.length > 0) {
+                            data.lines.forEach(line => addLogLine(line, true));
+                        }
+                    }
+                } catch (error) {
+                    console.error('Ошибка парсинга WebSocket сообщения:', error);
+                }
+            };
+            
+            ws.onclose = function() {
+                console.log('WebSocket отключен');
+                updateStatus('disconnected', 'Отключен');
+                ws = null;
+                
+                // Автоматическое переподключение через 5 секунд
+                scheduleReconnect();
+            };
+            
+            ws.onerror = function(error) {
+                console.error('WebSocket ошибка:', error);
+                updateStatus('disconnected', 'Ошибка соединения');
+            };
+        }
+
+        function disconnectWebSocket() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+            clearReconnectTimer();
+            updateStatus('disconnected', 'Отключен');
+        }
+
+        function scheduleReconnect() {
+            clearReconnectTimer();
+            let countdown = 5;
+            
+            const updateCountdown = () => {
+                updateStatus('disconnected', `Переподключение через ${countdown}с...`);
+                countdown--;
+                
+                if (countdown < 0) {
+                    connectWebSocket();
+                } else {
+                    reconnectTimer = setTimeout(updateCountdown, 1000);
+                }
+            };
+            
+            reconnectTimer = setTimeout(updateCountdown, 1000);
+        }
+
+        function clearReconnectTimer() {
+            if (reconnectTimer) {
+                clearTimeout(reconnectTimer);
+                reconnectTimer = null;
+            }
+        }
+
+        function addLogLine(line, isNew = false) {
+            if (!line || typeof line !== 'string') return;
+            
+            const container = document.getElementById('logContainer');
+            
+            // Удаляем empty state если он есть
+            const emptyState = container.querySelector('.empty-state');
+            if (emptyState) {
+                container.removeChild(emptyState);
+            }
+            
+            const logDiv = document.createElement('div');
+            const timestamp = new Date().toLocaleTimeString();
+            
+            // Определяем тип лога по содержимому
+            let logClass = 'log-line';
+            if (isNew) logClass += ' new';
+            
+            if (line.toLowerCase().includes('error') || line.toLowerCase().includes('ошибка')) {
+                logClass += ' error';
+            } else if (line.toLowerCase().includes('warning') || line.toLowerCase().includes('предупреждение')) {
+                logClass += ' warning';
+            } else if (line.toLowerCase().includes('info') || line.toLowerCase().includes('инфо')) {
+                logClass += ' info';
+            }
+            
+            logDiv.className = logClass;
+            logDiv.innerHTML = `<span style="color: #6c757d; font-weight: 500;">[${timestamp}]</span> <span style="color: #212529; font-weight: 600;">${escapeHtml(line)}</span>`;
+            
+            container.appendChild(logDiv);
+            logCount++;
+            updateLogCount();
+            
+            // Автопрокрутка вниз
+            if (autoScroll) {
+                container.scrollTop = container.scrollHeight;
+            }
+            
+            // Удаляем анимацию после завершения
+            if (isNew) {
+                setTimeout(() => {
+                    logDiv.classList.remove('new');
+                }, 3000);
+            }
+            
+            // Ограничиваем количество строк (оставляем последние 1000)
+            const logLines = container.querySelectorAll('.log-line');
+            if (logLines.length > 1000) {
+                const excess = logLines.length - 1000;
+                for (let i = 0; i < excess; i++) {
+                    container.removeChild(logLines[i]);
+                    logCount--;
+                }
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function clearLogs() {
+            const container = document.getElementById('logContainer');
+            container.innerHTML = '<div class="empty-state"><h3>📋 Логи очищены</h3><p>Ожидание новых записей...</p></div>';
+            logCount = 0;
+            updateLogCount();
+        }
+
+        function downloadLogs() {
+            const container = document.getElementById('logContainer');
+            const logLines = container.querySelectorAll('.log-line');
+            
+            let content = '';
+            logLines.forEach(line => {
+                content += line.textContent + '\n';
+            });
+            
+            const blob = new Blob([content], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `gex-logs-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.txt`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            
+            URL.revokeObjectURL(url);
+        }
+
+        function toggleAutoScroll() {
+            autoScroll = !autoScroll;
+            const toggle = document.getElementById('autoScrollToggle');
+            toggle.classList.toggle('active', autoScroll);
+        }
+
+        function updateLogCount() {
+            document.getElementById('logCount').textContent = `${logCount} строк`;
+        }
+
+        // Автоподключение при загрузке страницы
+        window.addEventListener('load', function() {
+            setTimeout(connectWebSocket, 500);
+        });
+        
+        // Переподключение при закрытии страницы
+        window.addEventListener('beforeunload', function() {
+            disconnectWebSocket();
+        });
+
+        // Обновляем время каждую секунду
+        setInterval(() => {
+            updateLogCount();
+        }, 1000);
+    </script>
 </body>
 </html>

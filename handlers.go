@@ -21,6 +21,10 @@ func (d *Dashboard) configHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "./static/config.html")
 }
 
+func (d *Dashboard) logsHandler(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "./static/logs.html")
+}
+
 func (d *Dashboard) configAPIHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":

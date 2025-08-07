@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -19,14 +21,18 @@ import (
 )
 
 const (
-	APP_DIR     = "/opt/gex"
-	LOG_FILE    = APP_DIR + "/log.txt"
-	CONFIG_FILE = APP_DIR + "/config.json"
-	RULES_DIR   = APP_DIR + "/rules"
+	APP_DIR      = "/opt/gex"
+	NFQ_DIR      = "/opt/nfq"
+	NFQ_LOG_FILE = "./test_log.txt" // Используем локальный файл для тестирования
+	CONFIG_FILE  = APP_DIR + "/config.json"
+	RULES_DIR    = APP_DIR + "/rules"
 )
 
 type Dashboard struct {
-	upgrader websocket.Upgrader
+	upgrader      websocket.Upgrader
+	logClients    map[*websocket.Conn]bool
+	logClientsMux sync.RWMutex
+	lastLogSize   int64
 }
 
 type SystemStats struct {
@@ -68,13 +74,19 @@ type Rule struct {
 }
 
 func NewDashboard() *Dashboard {
-	return &Dashboard{
+	d := &Dashboard{
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
 				return true
 			},
 		},
+		logClients: make(map[*websocket.Conn]bool),
 	}
+
+	// Инициализируем watcher для файла логов
+	d.initLogWatcher()
+
+	return d
 }
 
 func main() {
@@ -100,6 +112,7 @@ func main() {
 	// HTML страницы
 	r.HandleFunc("/", dashboard.mainHandler)
 	r.HandleFunc("/config", dashboard.configHandler)
+	r.HandleFunc("/logs", dashboard.logsHandler)
 	r.HandleFunc("/rules", dashboard.rulesHandler)
 
 	// API маршруты
@@ -113,6 +126,7 @@ func main() {
 
 	// WebSocket для real-time обновлений
 	r.HandleFunc("/ws/stats", dashboard.wsStatsHandler)
+	r.HandleFunc("/ws/logs", dashboard.wsLogsHandler)
 
 	fmt.Println("Dashboard запущен на http://localhost:8080")
 	fmt.Println("Веб-интерфейс: http://localhost:8080/")
@@ -133,8 +147,8 @@ func createDefaultFiles() {
 	}
 
 	// Создаём log.txt если не существует
-	if _, err := os.Stat(LOG_FILE); os.IsNotExist(err) {
-		os.WriteFile(LOG_FILE, []byte(""), 0644)
+	if _, err := os.Stat(NFQ_LOG_FILE); os.IsNotExist(err) {
+		os.WriteFile(NFQ_LOG_FILE, []byte(""), 0644)
 	}
 }
 
@@ -225,7 +239,7 @@ func (d *Dashboard) wsStatsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Dashboard) getLogsHandler(w http.ResponseWriter, r *http.Request) {
-	content, err := os.ReadFile(LOG_FILE)
+	content, err := os.ReadFile(NFQ_LOG_FILE)
 	if err != nil {
 		http.Error(w, "Не удалось прочитать файл логов", http.StatusInternalServerError)
 		return
@@ -275,6 +289,146 @@ func (d *Dashboard) packetStatsHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(stats)
+}
+
+// initLogWatcher инициализирует watcher для файла логов
+func (d *Dashboard) initLogWatcher() {
+	// Получаем текущий размер файла
+	if info, err := os.Stat(NFQ_LOG_FILE); err == nil {
+		d.lastLogSize = info.Size()
+	}
+
+	// Запускаем горутину для периодической проверки изменений файла
+	go d.watchLogFile()
+}
+
+// watchLogFile отслеживает изменения в файле логов
+func (d *Dashboard) watchLogFile() {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		if info, err := os.Stat(NFQ_LOG_FILE); err == nil {
+			currentSize := info.Size()
+			if currentSize > d.lastLogSize {
+				// Файл увеличился, читаем новые строки
+				d.readNewLogLines()
+				d.lastLogSize = currentSize
+			}
+		}
+	}
+}
+
+// readNewLogLines читает новые строки из файла логов
+func (d *Dashboard) readNewLogLines() {
+	file, err := os.Open(NFQ_LOG_FILE)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	// Переходим к позиции последнего прочитанного байта
+	if _, err := file.Seek(d.lastLogSize, 0); err != nil {
+		return
+	}
+
+	scanner := bufio.NewScanner(file)
+	var newLines []string
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.TrimSpace(line) != "" {
+			newLines = append(newLines, line)
+		}
+	}
+
+	if len(newLines) > 0 {
+		d.broadcastLogLines(newLines)
+	}
+}
+
+// broadcastLogLines отправляет новые строки логов всем подключенным клиентам
+func (d *Dashboard) broadcastLogLines(lines []string) {
+	d.logClientsMux.RLock()
+	defer d.logClientsMux.RUnlock()
+
+	message := map[string]interface{}{
+		"type":      "logs",
+		"lines":     lines,
+		"timestamp": time.Now().Unix(),
+	}
+
+	for client := range d.logClients {
+		if err := client.WriteJSON(message); err != nil {
+			// Клиент отключился, удаляем его
+			delete(d.logClients, client)
+			client.Close()
+		}
+	}
+}
+
+// wsLogsHandler обрабатывает WebSocket соединения для real-time логов
+func (d *Dashboard) wsLogsHandler(w http.ResponseWriter, r *http.Request) {
+	conn, err := d.upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("WebSocket upgrade error: %v", err)
+		return
+	}
+
+	// Добавляем клиента в список
+	d.logClientsMux.Lock()
+	d.logClients[conn] = true
+	d.logClientsMux.Unlock()
+
+	// Отправляем последние строки логов при подключении
+	d.sendRecentLogs(conn)
+
+	// Обрабатываем сообщения от клиента (в основном для поддержания соединения)
+	defer func() {
+		d.logClientsMux.Lock()
+		delete(d.logClients, conn)
+		d.logClientsMux.Unlock()
+		conn.Close()
+	}()
+
+	for {
+		// Читаем сообщения от клиента для поддержания соединения
+		if _, _, err := conn.ReadMessage(); err != nil {
+			break
+		}
+	}
+}
+
+// sendRecentLogs отправляет последние строки логов новому клиенту
+func (d *Dashboard) sendRecentLogs(conn *websocket.Conn) {
+	content, err := os.ReadFile(NFQ_LOG_FILE)
+	if err != nil {
+		return
+	}
+
+	lines := strings.Split(string(content), "\n")
+	// Отправляем последние 50 строк
+	startIndex := 0
+	if len(lines) > 50 {
+		startIndex = len(lines) - 50
+	}
+
+	var recentLines []string
+	for i := startIndex; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) != "" {
+			recentLines = append(recentLines, lines[i])
+		}
+	}
+
+	if len(recentLines) > 0 {
+		message := map[string]interface{}{
+			"type":      "initial_logs",
+			"lines":     recentLines,
+			"timestamp": time.Now().Unix(),
+		}
+
+		conn.WriteJSON(message)
+	}
 }
 
 func (d *Dashboard) restartServiceHandler(w http.ResponseWriter, r *http.Request) {

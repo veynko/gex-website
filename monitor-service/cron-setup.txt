@@ -1,0 +1,9 @@
+# Cron задача для обновления статистики пакетов каждые 30 секунд
+# Добавьте эту строку в crontab: crontab -e
+
+# Обновление статистики каждые 30 секунд
+* * * * * /opt/gex/monitor.sh >/dev/null 2>&1
+* * * * * sleep 30; /opt/gex/monitor.sh >/dev/null 2>&1
+
+# Альтернативно, можно использовать systemd timer
+# Создайте файлы gex-monitor.service и gex-monitor.timer

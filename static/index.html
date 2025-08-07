@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>GEX Traffic Filter Dashboard</title>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>GEX Traffic Filter Dashboard</h1>
+            <p>Мониторинг и управление системой фильтрации трафика</p>
+        </div>
+        
+        <nav class="nav">
+            <a href="index.html" class="active">Главная</a>
+            <a href="logs.html">Логи</a>
+            <a href="config.html">Конфигурация</a>
+            <a href="rules.html">Правила</a>
+        </nav>
+
+        <div class="card">
+            <h2>Системная статистика</h2>
+            <div class="stats-grid" id="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="cpu-value">0%</div>
+                    <div class="stat-label">CPU</div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="cpu-progress"></div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="ram-value">0%</div>
+                    <div class="stat-label">RAM</div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="ram-progress"></div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="disk-value">0%</div>
+                    <div class="stat-label">Диск</div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="disk-progress"></div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="network-value">0 MB/s</div>
+                    <div class="stat-label">Сеть</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Статистика пакетов</h2>
+            <div class="stats-grid" id="packet-stats">
+                <div class="stat-card">
+                    <div class="stat-value" id="packets-total">0</div>
+                    <div class="stat-label">Всего пакетов</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="packets-passed" style="color: #27ae60;">0</div>
+                    <div class="stat-label">Пропущено</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="packets-blocked" style="color: #e74c3c;">0</div>
+                    <div class="stat-label">Заблокировано</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Управление службами</h2>
+            <div class="service-controls">
+                <button class="btn btn-restart" onclick="restartService('web')">Перезапустить Web</button>
+                <button class="btn btn-restart" onclick="restartService('nfq')">Перезапустить NFQ</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

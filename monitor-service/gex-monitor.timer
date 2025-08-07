@@ -1,0 +1,11 @@
+# Systemd timer для автоматического запуска мониторинга каждые 30 секунд
+[Unit]
+Description=GEX Traffic Monitor Timer
+Requires=gex-monitor.service
+
+[Timer]
+OnBootSec=30sec
+OnUnitActiveSec=30sec
+
+[Install]
+WantedBy=timers.target

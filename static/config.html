@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Конфигурация - GEX Dashboard</title>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .config-editor { 
+            font-family: monospace; 
+            height: 400px; 
+            width: 100%; 
+            padding: 8px; 
+            border: 1px solid #ddd; 
+            border-radius: 4px; 
+        }
+        .message { 
+            padding: 10px; 
+            margin: 10px 0; 
+            border-radius: 4px; 
+        }
+        .message.success { 
+            background: #d4edda; 
+            color: #155724; 
+            border: 1px solid #c3e6cb; 
+        }
+        .message.error { 
+            background: #f8d7da; 
+            color: #721c24; 
+            border: 1px solid #f5c6cb; 
+        }
+        .form-group { 
+            margin-bottom: 15px; 
+        }
+        .form-group label { 
+            display: block; 
+            margin-bottom: 5px; 
+            font-weight: bold; 
+        }
+        .btn-save { 
+            background: #27ae60; 
+            color: white; 
+        }
+        .btn-save:hover { 
+            background: #229954; 
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Конфигурация системы</h1>
+        </div>
+        
+        <div class="nav">
+            <a href="/">Главная</a>
+            <a href="/logs">Логи</a>
+            <a href="/config">Конфигурация</a>
+            <a href="/rules">Правила</a>
+        </div>
+
+        <div class="card">
+            <h2>Редактор конфигурации</h2>
+            <div id="message-container"></div>
+            <form id="config-form">
+                <div class="form-group">
+                    <label for="config-content">Содержимое config.json:</label>
+                    <textarea id="config-content" class="config-editor" placeholder="Загрузка конфигурации..."></textarea>
+                </div>
+                <button type="submit" class="btn btn-save">Сохранить конфигурацию</button>
+            </form>
+        </div>
+    </div>
+
+    <script src="config.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+# Systemd сервис для мониторинга статистики
+[Unit]
+Description=GEX Traffic Monitor
+After=network.target
+
+[Service]
+Type=oneshot
+User=gex
+Group=gex
+WorkingDirectory=/opt/gex
+ExecStart=/opt/gex/monitor.sh

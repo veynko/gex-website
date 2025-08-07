@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Правила - GEX Dashboard</title>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .btn { 
+            padding: 8px 16px; 
+            border: none; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            margin-right: 5px; 
+        }
+        .btn-primary { 
+            background: #3498db; 
+            color: white; 
+        }
+        .btn-success { 
+            background: #27ae60; 
+            color: white; 
+        }
+        .btn-danger { 
+            background: #e74c3c; 
+            color: white; 
+        }
+        .btn-warning { 
+            background: #f39c12; 
+            color: white; 
+        }
+        .table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin-top: 20px; 
+        }
+        .table th, .table td { 
+            padding: 12px; 
+            text-align: left; 
+            border-bottom: 1px solid #ddd; 
+        }
+        .table th { 
+            background: #f8f9fa; 
+            font-weight: bold; 
+        }
+        .status-enabled { 
+            color: #27ae60; 
+            font-weight: bold; 
+        }
+        .status-disabled { 
+            color: #e74c3c; 
+            font-weight: bold; 
+        }
+        .modal { 
+            display: none; 
+            position: fixed; 
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 100%; 
+            background: rgba(0,0,0,0.5); 
+        }
+        .modal-content { 
+            position: absolute; 
+            top: 50%; 
+            left: 50%; 
+            transform: translate(-50%, -50%); 
+            background: white; 
+            padding: 20px; 
+            border-radius: 5px; 
+            max-width: 500px; 
+            width: 90%; 
+        }
+        .form-group { 
+            margin-bottom: 15px; 
+        }
+        .form-group label { 
+            display: block; 
+            margin-bottom: 5px; 
+            font-weight: bold; 
+        }
+        .form-group input, .form-group select, .form-group textarea { 
+            width: 100%; 
+            padding: 8px; 
+            border: 1px solid #ddd; 
+            border-radius: 4px; 
+            box-sizing: border-box; 
+        }
+        .form-actions { 
+            display: flex; 
+            gap: 10px; 
+            justify-content: flex-end; 
+            margin-top: 20px; 
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Управление правилами фильтрации</h1>
+        </div>
+        
+        <div class="nav">
+            <a href="/">Главная</a>
+            <a href="/logs">Логи</a>
+            <a href="/config">Конфигурация</a>
+            <a href="/rules">Правила</a>
+        </div>
+
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2>Список правил</h2>
+                <button class="btn btn-primary" onclick="openModal()">Добавить правило</button>
+            </div>
+            
+            <table class="table" id="rules-table">
+                <thead>
+                    <tr>
+                        <th>Название</th>
+                        <th>Действие</th>
+                        <th>Протокол</th>
+                        <th>Источник</th>
+                        <th>Назначение</th>
+                        <th>Статус</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody id="rules-tbody">
+                    <tr><td colspan="7">Загрузка правил...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Модальное окно для редактирования правил -->
+    <div id="rule-modal" class="modal">
+        <div class="modal-content">
+            <h3 id="modal-title">Новое правило</h3>
+            <form id="rule-form">
+                <input type="hidden" id="rule-id" />
+                
+                <div class="form-group">
+                    <label for="rule-name">Название:</label>
+                    <input type="text" id="rule-name" required />
+                </div>
+                
+                <div class="form-group">
+                    <label for="rule-action">Действие:</label>
+                    <select id="rule-action" required>
+                        <option value="allow">Разрешить</option>
+                        <option value="block">Блокировать</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="rule-protocol">Протокол:</label>
+                    <select id="rule-protocol" required>
+                        <option value="tcp">TCP</option>
+                        <option value="udp">UDP</option>
+                        <option value="icmp">ICMP</option>
+                        <option value="any">Любой</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="rule-source-ip">IP источника:</label>
+                    <input type="text" id="rule-source-ip" placeholder="0.0.0.0/0" />
+                </div>
+                
+                <div class="form-group">
+                    <label for="rule-dest-ip">IP назначения:</label>
+                    <input type="text" id="rule-dest-ip" placeholder="0.0.0.0/0" />
+                </div>
+                
+                <div class="form-group">
+                    <label for="rule-source-port">Порт источника:</label>
+                    <input type="number" id="rule-source-port" min="0" max="65535" />
+                </div>
+                
+                <div class="form-group">
+                    <label for="rule-dest-port">Порт назначения:</label>
+                    <input type="number" id="rule-dest-port" min="0" max="65535" />
+                </div>
+                
+                <div class="form-group">
+                    <label for="rule-enabled">
+                        <input type="checkbox" id="rule-enabled" checked /> Включено
+                    </label>
+                </div>
+                
+                <div class="form-group">
+                    <label for="rule-description">Описание:</label>
+                    <textarea id="rule-description" rows="3"></textarea>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="button" class="btn btn-primary" onclick="closeModal()">Отмена</button>
+                    <button type="submit" class="btn btn-success">Сохранить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="rules.js"></script>
+</body>
+</html>

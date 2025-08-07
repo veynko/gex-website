@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Логи - GEX Dashboard</title>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Логи системы</h1>
+        </div>
+        
+        <nav class="nav">
+            <a href="index.html">Главная</a>
+            <a href="logs.html" class="active">Логи</a>
+            <a href="config.html">Конфигурация</a>
+            <a href="rules.html">Правила</a>
+        </nav>
+
+        <div class="card">
+            <button class="btn btn-refresh" onclick="refreshLogs()">Обновить логи</button>
+            <div class="log-container" id="log-container">
+                Загрузка логов...
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

@@ -52,12 +52,13 @@ func (d *Dashboard) logsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Dashboard) getLogsHandler(w http.ResponseWriter, r *http.Request) {
-	content, err := os.ReadFile(NFQ_LOG_FILE)
+	content, err := os.ReadFile(config.NFQ_LOG_FILE)
 	if err != nil {
 		http.Error(w, "Не удалось прочитать файл логов", http.StatusInternalServerError)
 		return
 	}
 
+	// Возвращаем последние 1000 строк
 	lines := strings.Split(string(content), "\n")
 	if len(lines) > 1000 {
 		lines = lines[len(lines)-1000:]
@@ -70,7 +71,7 @@ func (d *Dashboard) getLogsHandler(w http.ResponseWriter, r *http.Request) {
 func (d *Dashboard) configAPIHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
-		content, err := os.ReadFile(CONFIG_FILE)
+		content, err := os.ReadFile("./config.json")
 		if err != nil {
 			http.Error(w, "Не удалось прочитать конфигурацию", http.StatusInternalServerError)
 			return
@@ -98,7 +99,7 @@ func (d *Dashboard) configAPIHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if err := os.WriteFile(CONFIG_FILE, configData, 0644); err != nil {
+		if err := os.WriteFile("./config.json", configData, 0644); err != nil {
 			http.Error(w, "Не удалось сохранить конфигурацию", http.StatusInternalServerError)
 			return
 		}
@@ -213,7 +214,7 @@ func (d *Dashboard) loadAllRules() ([]Rule, error) {
 	var rules []Rule
 
 	// Читаем все файлы .json из директории rules
-	files, err := os.ReadDir(RULES_DIR)
+	files, err := os.ReadDir(config.NFQ_RULES_DIR)
 	if err != nil {
 		return rules, err
 	}
@@ -237,7 +238,7 @@ func (d *Dashboard) loadAllRules() ([]Rule, error) {
 }
 
 func (d *Dashboard) loadRule(ruleID string) (*Rule, error) {
-	filePath := filepath.Join(RULES_DIR, ruleID+".json")
+	filePath := filepath.Join(config.NFQ_RULES_DIR, ruleID+".json")
 
 	content, err := os.ReadFile(filePath)
 	if err != nil {
@@ -254,11 +255,11 @@ func (d *Dashboard) loadRule(ruleID string) (*Rule, error) {
 
 func (d *Dashboard) saveRule(rule *Rule) error {
 	// Создаём директорию если не существует
-	if err := os.MkdirAll(RULES_DIR, 0755); err != nil {
+	if err := os.MkdirAll(config.NFQ_RULES_DIR, 0755); err != nil {
 		return err
 	}
 
-	filePath := filepath.Join(RULES_DIR, rule.ID+".json")
+	filePath := filepath.Join(config.NFQ_RULES_DIR, rule.ID+".json")
 
 	ruleData, err := json.MarshalIndent(rule, "", "    ")
 	if err != nil {
@@ -269,6 +270,6 @@ func (d *Dashboard) saveRule(rule *Rule) error {
 }
 
 func (d *Dashboard) deleteRule(ruleID string) error {
-	filePath := filepath.Join(RULES_DIR, ruleID+".json")
+	filePath := filepath.Join(config.NFQ_RULES_DIR, ruleID+".json")
 	return os.Remove(filePath)
 }

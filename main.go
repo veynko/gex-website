@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -20,13 +21,74 @@ import (
 	"github.com/shirou/gopsutil/v3/net"
 )
 
-const (
-	APP_DIR      = "/opt/gex"
-	NFQ_DIR      = "/opt/nfq"
-	NFQ_LOG_FILE = "./test_log.txt"
-	CONFIG_FILE  = APP_DIR + "/config.json"
-	RULES_DIR    = APP_DIR + "/rules"
-)
+type AppConfig struct {
+	NFQ_LOG_FILE   string `json:"nfq_log_file"`
+	NFQ_RULES_DIR  string `json:"nfq_rules_dir"`
+	NET_STATS_FILE string `json:"net_stats_file"`
+	SYS_STATS_FILE string `json:"sys_stats_file"`
+	LogLevel       string `json:"logLevel"`
+	Interface      string `json:"interface"`
+}
+
+var config *AppConfig
+
+var prev_netstats NetworkStats
+
+const CONFIG_FILE = "./config.json"
+
+func loadConfig() (*AppConfig, error) {
+	defaultConfig := &AppConfig{
+		NFQ_LOG_FILE:   "/root/nfq/log.txt",
+		NFQ_RULES_DIR:  "/root/nfq/rules",
+		NET_STATS_FILE: "/tmp/nfq/nfq.json",
+		SYS_STATS_FILE: "/tmp/nfq/sys.json",
+		Interface:      "lan0",
+		LogLevel:       "info",
+	}
+
+	if _, err := os.Stat(CONFIG_FILE); os.IsNotExist(err) {
+		if err := saveConfig(defaultConfig); err != nil {
+			return nil, fmt.Errorf("failed to create default config: %v", err)
+		}
+		return defaultConfig, nil
+	}
+
+	content, err := os.ReadFile(CONFIG_FILE)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %v", err)
+	}
+
+	var cfg AppConfig
+	if err := json.Unmarshal(content, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse config file: %v", err)
+	}
+
+	if cfg.NFQ_LOG_FILE == "" {
+		cfg.NFQ_LOG_FILE = defaultConfig.NFQ_LOG_FILE
+	}
+	if cfg.NFQ_RULES_DIR == "" {
+		cfg.NFQ_RULES_DIR = defaultConfig.NFQ_RULES_DIR
+	}
+	if cfg.NET_STATS_FILE == "" {
+		cfg.NET_STATS_FILE = defaultConfig.NET_STATS_FILE
+	}
+	if cfg.SYS_STATS_FILE == "" {
+		cfg.SYS_STATS_FILE = defaultConfig.SYS_STATS_FILE
+	}
+	if cfg.Interface == "" {
+		cfg.Interface = defaultConfig.Interface
+	}
+
+	return &cfg, nil
+}
+
+func saveConfig(cfg *AppConfig) error {
+	configData, err := json.MarshalIndent(cfg, "", "    ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(CONFIG_FILE, configData, 0644)
+}
 
 type Dashboard struct {
 	upgrader      websocket.Upgrader
@@ -36,22 +98,25 @@ type Dashboard struct {
 }
 
 type SystemStats struct {
-	CPU       float64      `json:"cpu"`
-	RAM       float64      `json:"ram"`
-	RAMUsed   uint64       `json:"ramUsed"`
-	RAMTotal  uint64       `json:"ramTotal"`
-	Disk      float64      `json:"disk"`
-	DiskUsed  uint64       `json:"diskUsed"`
-	DiskTotal uint64       `json:"diskTotal"`
-	Network   NetworkStats `json:"network"`
-	Timestamp int64        `json:"timestamp"`
+	CPU       float64    `json:"cpu"`
+	RAM       float64    `json:"ram"`
+	RAMUsed   uint64     `json:"ramUsed"`
+	RAMTotal  uint64     `json:"ramTotal"`
+	Disk      float64    `json:"disk"`
+	DiskUsed  uint64     `json:"diskUsed"`
+	DiskTotal uint64     `json:"diskTotal"`
+	Speed     SpeedStats `json:"speed"`
+	Timestamp int64      `json:"timestamp"`
 }
 
 type NetworkStats struct {
-	BytesRecv   uint64 `json:"bytesRecv"`
-	BytesSent   uint64 `json:"bytesSent"`
-	PacketsRecv uint64 `json:"packetsRecv"`
-	PacketsSent uint64 `json:"packetsSent"`
+	BytesRecv uint64 `json:"bytesRecv"`
+	BytesSent uint64 `json:"bytesSent"`
+}
+
+type SpeedStats struct {
+	Download uint64 `json:"download"`
+	Upload   uint64 `json:"upload"`
 }
 
 type PacketStats struct {
@@ -89,8 +154,36 @@ func NewDashboard() *Dashboard {
 }
 
 func main() {
-	os.MkdirAll(APP_DIR, 0755)
-	os.MkdirAll(RULES_DIR, 0755)
+	// Загружаем конфигурацию
+	var err error
+	config, err = loadConfig()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	netStats, err := net.IOCounters(true)
+	if err != nil {
+		log.Fatal("Failed to get network stats:", err)
+	}
+
+	var networkStats NetworkStats
+	for _, stat := range netStats {
+		if stat.Name == config.Interface {
+			networkStats = NetworkStats{
+				BytesRecv: stat.BytesRecv,
+				BytesSent: stat.BytesSent,
+			}
+			break
+		}
+	}
+
+	prev_netstats = networkStats
+
+	// Создаём необходимые директории
+	os.MkdirAll(filepath.Dir(config.NFQ_RULES_DIR), 0755)
+	os.MkdirAll(config.NFQ_RULES_DIR, 0755)
+
+	// Создаём файлы по умолчанию если они не существуют
 	createDefaultFiles()
 
 	dashboard := NewDashboard()
@@ -125,19 +218,31 @@ func main() {
 }
 
 func createDefaultFiles() {
-	if _, err := os.Stat(CONFIG_FILE); os.IsNotExist(err) {
-		defaultConfig := map[string]interface{}{
-			"interface":  "eth0",
-			"mode":       "bridge",
-			"logLevel":   "info",
-			"bufferSize": 4096,
-		}
-		configData, _ := json.MarshalIndent(defaultConfig, "", "    ")
-		os.WriteFile(CONFIG_FILE, configData, 0644)
+	// Создаём файл логов если не существует
+	if _, err := os.Stat(config.NFQ_LOG_FILE); os.IsNotExist(err) {
+		os.WriteFile(config.NFQ_LOG_FILE, []byte(""), 0644)
 	}
 
-	if _, err := os.Stat(NFQ_LOG_FILE); os.IsNotExist(err) {
-		os.WriteFile(NFQ_LOG_FILE, []byte(""), 0644)
+	// Создаём файлы статистики если не существуют
+	if _, err := os.Stat(config.NET_STATS_FILE); os.IsNotExist(err) {
+		defaultNetStats := map[string]interface{}{
+			"total":   1488,
+			"passed":  488,
+			"blocked": 1000,
+		}
+		data, _ := json.MarshalIndent(defaultNetStats, "", "    ")
+		os.WriteFile(config.NET_STATS_FILE, data, 0644)
+	}
+
+	if _, err := os.Stat(config.SYS_STATS_FILE); os.IsNotExist(err) {
+		defaultSysStats := map[string]interface{}{
+			"cpu":       0.0,
+			"ram":       0.0,
+			"disk":      0.0,
+			"timestamp": time.Now().Unix(),
+		}
+		data, _ := json.MarshalIndent(defaultSysStats, "", "    ")
+		os.WriteFile(config.SYS_STATS_FILE, data, 0644)
 	}
 }
 
@@ -172,19 +277,25 @@ func (d *Dashboard) getSystemStats() (*SystemStats, error) {
 	}
 
 	// Сетевая статистика
-	netStats, err := net.IOCounters(false)
+	netStats, err := net.IOCounters(true)
 	if err != nil {
 		return nil, err
 	}
 
 	var networkStats NetworkStats
-	if len(netStats) > 0 {
-		networkStats = NetworkStats{
-			BytesRecv:   netStats[0].BytesRecv,
-			BytesSent:   netStats[0].BytesSent,
-			PacketsRecv: netStats[0].PacketsRecv,
-			PacketsSent: netStats[0].PacketsSent,
+	for _, stat := range netStats {
+		if stat.Name == config.Interface {
+			networkStats = NetworkStats{
+				BytesRecv: stat.BytesRecv,
+				BytesSent: stat.BytesSent,
+			}
+			break
 		}
+	}
+
+	var speedStats = SpeedStats{
+		Download: networkStats.BytesRecv - prev_netstats.BytesRecv,
+		Upload:   networkStats.BytesSent - prev_netstats.BytesSent,
 	}
 
 	stats := &SystemStats{
@@ -195,22 +306,22 @@ func (d *Dashboard) getSystemStats() (*SystemStats, error) {
 		Disk:      diskStat.UsedPercent,
 		DiskUsed:  diskStat.Used,
 		DiskTotal: diskStat.Total,
-		Network:   networkStats,
+		Speed:     speedStats,
 		Timestamp: time.Now().Unix(),
 	}
+
+	prev_netstats = networkStats
 
 	return stats, nil
 }
 
 func (d *Dashboard) packetStatsHandler(w http.ResponseWriter, r *http.Request) {
-	statsFile := APP_DIR + "/packet_stats.json"
+	statsFile := config.NET_STATS_FILE
 
-	// Пытаемся прочитать статистику из файла
 	if content, err := os.ReadFile(statsFile); err == nil {
 		var fileStats map[string]interface{}
 		if json.Unmarshal(content, &fileStats) == nil {
 			stats := PacketStats{}
-
 			if total, ok := fileStats["total"].(float64); ok {
 				stats.Total = uint64(total)
 			}
@@ -220,18 +331,16 @@ func (d *Dashboard) packetStatsHandler(w http.ResponseWriter, r *http.Request) {
 			if blocked, ok := fileStats["blocked"].(float64); ok {
 				stats.Blocked = uint64(blocked)
 			}
-
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(stats)
 			return
 		}
 	}
 
-	// Fallback: имитация статистики пакетов
 	stats := PacketStats{
-		Total:   12345,
-		Passed:  10000,
-		Blocked: 2345,
+		Total:   1,
+		Passed:  0,
+		Blocked: 0,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -241,7 +350,7 @@ func (d *Dashboard) packetStatsHandler(w http.ResponseWriter, r *http.Request) {
 // initLogWatcher инициализирует watcher для файла логов
 func (d *Dashboard) initLogWatcher() {
 	// Получаем текущий размер файла
-	if info, err := os.Stat(NFQ_LOG_FILE); err == nil {
+	if info, err := os.Stat(config.NFQ_LOG_FILE); err == nil {
 		d.lastLogSize = info.Size()
 	}
 
@@ -255,7 +364,7 @@ func (d *Dashboard) watchLogFile() {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		if info, err := os.Stat(NFQ_LOG_FILE); err == nil {
+		if info, err := os.Stat(config.NFQ_LOG_FILE); err == nil {
 			currentSize := info.Size()
 			if currentSize > d.lastLogSize {
 				// Файл увеличился, читаем новые строки
@@ -268,7 +377,7 @@ func (d *Dashboard) watchLogFile() {
 
 // readNewLogLines читает новые строки из файла логов
 func (d *Dashboard) readNewLogLines() {
-	file, err := os.Open(NFQ_LOG_FILE)
+	file, err := os.Open(config.NFQ_LOG_FILE)
 	if err != nil {
 		return
 	}
@@ -348,7 +457,7 @@ func (d *Dashboard) wsLogsHandler(w http.ResponseWriter, r *http.Request) {
 
 // sendRecentLogs отправляет последние строки логов новому клиенту
 func (d *Dashboard) sendRecentLogs(conn *websocket.Conn) {
-	content, err := os.ReadFile(NFQ_LOG_FILE)
+	content, err := os.ReadFile(config.NFQ_LOG_FILE)
 	if err != nil {
 		return
 	}

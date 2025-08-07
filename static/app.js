@@ -57,7 +57,7 @@ function updateStats(stats) {
         'cpu-value': `${stats.cpu.toFixed(1)}%`,
         'ram-value': `${stats.ram.toFixed(1)}%`,
         'disk-value': `${stats.disk.toFixed(1)}%`,
-        'network-value': `${((stats.network.bytesRecv + stats.network.bytesSent) / 1024 / 1024).toFixed(2)} MB/s`
+        'network-value': `${((stats.speed.download + stats.speed.upload) / 1024 / 1024).toFixed(2)} MB/s`
     };
     
     Object.entries(elements).forEach(([id, value]) => {

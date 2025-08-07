@@ -5,6 +5,9 @@ function loadRules() {
         .then(response => response.json())
         .then(data => {
             currentRules = data;
+            if (currentRules === null) {
+                currentRules = [];
+            }
             renderRulesTable();
         })
         .catch(error => {

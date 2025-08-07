@@ -33,3 +33,4 @@ go.work.sum
 gex-dashboard
 config.json
 tmp/
+build/

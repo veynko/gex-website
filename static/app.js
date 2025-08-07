@@ -1,7 +1,5 @@
-// API базовый URL
 const API_BASE = '';
 
-// Утилиты
 function showMessage(message, type = 'success') {
     const container = document.getElementById('message-container');
     if (container) {
@@ -14,7 +12,6 @@ function showMessage(message, type = 'success') {
     }
 }
 
-// WebSocket для real-time обновлений (только на главной странице)
 let ws;
 function initWebSocket() {
     if (document.getElementById('stats-grid')) {
@@ -28,7 +25,6 @@ function initWebSocket() {
             
             ws.onerror = function(error) {
                 console.error('WebSocket error:', error);
-                // Fallback к обычным запросам
                 setInterval(updateStatsHttp, 5000);
             };
             
@@ -43,7 +39,6 @@ function initWebSocket() {
     }
 }
 
-// HTTP обновление статистики (fallback)
 function updateStatsHttp() {
     fetch('/api/stats')
         .then(response => response.json())
@@ -51,7 +46,6 @@ function updateStatsHttp() {
         .catch(error => console.error('Stats error:', error));
 }
 
-// Обновление статистики в интерфейсе
 function updateStats(stats) {
     const elements = {
         'cpu-value': `${stats.cpu.toFixed(1)}%`,
@@ -65,7 +59,6 @@ function updateStats(stats) {
         if (element) element.textContent = value;
     });
     
-    // Обновляем прогресс-бары
     const progressBars = {
         'cpu-progress': stats.cpu,
         'ram-progress': stats.ram,
@@ -78,7 +71,6 @@ function updateStats(stats) {
     });
 }
 
-// Обновление статистики пакетов
 function updatePacketStats() {
     fetch('/api/packet-stats')
         .then(response => response.json())
@@ -97,7 +89,6 @@ function updatePacketStats() {
         .catch(error => console.error('Packet stats error:', error));
 }
 
-// Перезапуск сервиса
 function restartService(service) {
     if (confirm(`Вы уверены, что хотите перезапустить службу ${service}?`)) {
         fetch(`/api/restart/${service}`, {method: 'POST'})
@@ -111,7 +102,6 @@ function restartService(service) {
     }
 }
 
-// Загрузка логов
 function refreshLogs() {
     fetch('/api/logs')
         .then(response => response.text())
@@ -130,7 +120,6 @@ function refreshLogs() {
         });
 }
 
-// Загрузка и сохранение конфигурации
 function loadConfig() {
     fetch('/api/config')
         .then(response => response.json())
@@ -150,7 +139,6 @@ function saveConfig() {
     if (!editor) return;
     
     try {
-        // Проверяем валидность JSON
         const config = JSON.parse(editor.value);
         
         fetch('/api/config', {
@@ -176,7 +164,6 @@ function saveConfig() {
     }
 }
 
-// Загрузка списка правил
 function loadRules() {
     fetch('/api/rules')
         .then(response => response.json())
@@ -209,7 +196,6 @@ function loadRules() {
         });
 }
 
-// Редактирование правила
 function editRule(ruleId) {
     fetch(`/api/rules/${ruleId}`)
         .then(response => response.json())
@@ -225,7 +211,6 @@ function editRule(ruleId) {
         });
 }
 
-// Создание нового правила
 function newRule() {
     const defaultRule = {
         id: 'rule_' + Date.now(),
@@ -247,7 +232,6 @@ function newRule() {
     }
 }
 
-// Сохранение правила
 function saveRule() {
     const editor = document.getElementById('rule-editor');
     if (!editor) return;
@@ -270,7 +254,7 @@ function saveRule() {
         .then(data => {
             if (data.success) {
                 showMessage(ruleId ? 'Правило обновлено' : 'Правило создано');
-                loadRules(); // Перезагружаем список
+                loadRules();
             } else {
                 showMessage(data.error || 'Ошибка сохранения', 'error');
             }
@@ -283,7 +267,6 @@ function saveRule() {
     }
 }
 
-// Удаление правила
 function deleteRule(ruleId) {
     if (confirm('Вы уверены, что хотите удалить это правило?')) {
         fetch(`/api/rules/${ruleId}`, {
@@ -293,7 +276,7 @@ function deleteRule(ruleId) {
         .then(data => {
             if (data.success) {
                 showMessage('Правило удалено');
-                loadRules(); // Перезагружаем список
+                loadRules();
             } else {
                 showMessage(data.error || 'Ошибка удаления', 'error');
             }
@@ -304,9 +287,7 @@ function deleteRule(ruleId) {
     }
 }
 
-// Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', function() {
-    // Определяем текущую страницу и инициализируем соответствующие функции
     const currentPage = window.location.pathname.split('/').pop() || 'index.html';
     
     switch (currentPage) {
@@ -328,7 +309,6 @@ document.addEventListener('DOMContentLoaded', function() {
             
         case 'rules.html':
             loadRules();
-            // Создаём новое правило при загрузке
             newRule();
             break;
     }

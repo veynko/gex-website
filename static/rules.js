@@ -42,7 +42,6 @@ function createNewFile() {
     document.getElementById('editor-title').textContent = 'Создание нового файла';
     document.getElementById('rule-filename').value = '';
     
-    // Предлагаем базовый JSON шаблон
     const baseTemplate = {
         "name": "Новое правило",
         "action": "allow", 
@@ -54,7 +53,6 @@ function createNewFile() {
     document.getElementById('filename-group').style.display = 'block';
     document.getElementById('json-editor-modal').style.display = 'block';
     
-    // Инициализируем CodeMirror после показа модального окна
     setTimeout(() => {
         initCodeMirror(JSON.stringify(baseTemplate, null, 2));
     }, 100);
@@ -70,11 +68,9 @@ function editFile(filename) {
     
     document.getElementById('json-editor-modal').style.display = 'block';
     
-    // Загружаем содержимое файла
     fetch('/api/rules/raw/' + filename)
         .then(response => response.text())
         .then(content => {
-            // Инициализируем CodeMirror с загруженным содержимым
             setTimeout(() => {
                 initCodeMirror(content);
             }, 100);
@@ -95,7 +91,7 @@ function deleteFile(filename) {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            loadRuleFiles(); // Перезагружаем список файлов
+            loadRuleFiles();
         } else {
             alert('Ошибка удаления: ' + (data.error || 'Неизвестная ошибка'));
         }
@@ -110,7 +106,6 @@ function closeJsonEditor() {
     currentEditingFileName = null;
     isNewFile = false;
     
-    // Уничтожаем CodeMirror экземпляр
     if (codeMirrorEditor) {
         codeMirrorEditor.toTextArea();
         codeMirrorEditor = null;
@@ -118,7 +113,6 @@ function closeJsonEditor() {
 }
 
 function initCodeMirror(initialValue) {
-    // Уничтожаем предыдущий экземпляр если есть
     if (codeMirrorEditor) {
         codeMirrorEditor.toTextArea();
         codeMirrorEditor = null;
@@ -143,22 +137,18 @@ function initCodeMirror(initialValue) {
         }
     });
     
-    // Форматируем JSON при инициализации
     try {
         const parsed = JSON.parse(initialValue || '{}');
         const formatted = JSON.stringify(parsed, null, 2);
         codeMirrorEditor.setValue(formatted);
     } catch (e) {
-        // Если JSON невалидный, оставляем как есть
         codeMirrorEditor.setValue(initialValue || '{}');
     }
 }
 
 function saveCurrentRule() {
-    // Получаем текст из CodeMirror
     const jsonText = codeMirrorEditor ? codeMirrorEditor.getValue() : document.getElementById('rule-json-editor').value;
     
-    // Проверяем валидность JSON, но позволяем сохранить даже невалидный
     let isValidJson = true;
     try {
         if (jsonText.trim() !== '') {
@@ -178,7 +168,6 @@ function saveCurrentRule() {
             alert('Введите имя файла');
             return;
         }
-        // Убираем .json если пользователь его добавил
         filename = filename.replace(/\.json$/, '');
     } else {
         filename = currentEditingFileName;
@@ -198,7 +187,7 @@ function saveCurrentRule() {
     .then(data => {
         if (data.success) {
             closeJsonEditor();
-            loadRuleFiles(); // Перезагружаем список файлов
+            loadRuleFiles();
             if (!isValidJson) {
                 alert('Файл сохранен, но содержит невалидный JSON');
             }
@@ -211,13 +200,11 @@ function saveCurrentRule() {
     });
 }
 
-// Переименовываем функцию для совместимости с HTML
 function createNewRule() {
     createNewFile();
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-    // Закрытие модального окна по клику вне его
     window.onclick = function(event) {
         const modal = document.getElementById('json-editor-modal');
         if (event.target == modal) {
@@ -225,6 +212,5 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     };
 
-    // Загружаем файлы при загрузке страницы
     loadRuleFiles();
 });

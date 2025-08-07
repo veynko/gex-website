@@ -22,12 +22,14 @@ import (
 )
 
 type AppConfig struct {
-	NFQ_LOG_FILE   string `json:"nfq_log_file"`
-	NFQ_RULES_DIR  string `json:"nfq_rules_dir"`
-	NET_STATS_FILE string `json:"net_stats_file"`
-	SYS_STATS_FILE string `json:"sys_stats_file"`
-	LogLevel       string `json:"logLevel"`
-	Interface      string `json:"interface"`
+	NFQ_LOG_FILE    string `json:"nfq_log_file"`
+	NFQ_CONFIG_FILE string `json:"nfq_config_file"`
+	NFQ_RULES_DIR   string `json:"nfq_rules_dir"`
+	NET_STATS_FILE  string `json:"net_stats_file"`
+	SYS_STATS_FILE  string `json:"sys_stats_file"`
+	LogLevel        string `json:"logLevel"`
+	Interface       string `json:"interface"`
+	ListenPort      string `json:"listenPort"`
 }
 
 var config *AppConfig
@@ -38,12 +40,14 @@ const CONFIG_FILE = "./config.json"
 
 func loadConfig() (*AppConfig, error) {
 	defaultConfig := &AppConfig{
-		NFQ_LOG_FILE:   "/root/nfq/log.txt",
-		NFQ_RULES_DIR:  "/root/nfq/rules",
-		NET_STATS_FILE: "/tmp/nfq/nfq.json",
-		SYS_STATS_FILE: "/tmp/nfq/sys.json",
-		Interface:      "lan0",
-		LogLevel:       "info",
+		NFQ_LOG_FILE:    "/root/nfq/log.txt",
+		NFQ_CONFIG_FILE: "/root/nfq/config.json",
+		NFQ_RULES_DIR:   "/root/nfq/rules",
+		NET_STATS_FILE:  "/tmp/nfq/nfq.json",
+		SYS_STATS_FILE:  "/tmp/nfq/sys.json",
+		Interface:       "lan0",
+		LogLevel:        "info",
+		ListenPort:      "8080",
 	}
 
 	if _, err := os.Stat(CONFIG_FILE); os.IsNotExist(err) {
@@ -128,7 +132,7 @@ type PacketStats struct {
 type Rule struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
-	Action      string `json:"action"` // allow, block
+	Action      string `json:"action"`
 	Protocol    string `json:"protocol"`
 	SourceIP    string `json:"sourceIP"`
 	DestIP      string `json:"destIP"`
@@ -154,7 +158,6 @@ func NewDashboard() *Dashboard {
 }
 
 func main() {
-	// Загружаем конфигурацию
 	var err error
 	config, err = loadConfig()
 	if err != nil {
@@ -179,18 +182,15 @@ func main() {
 
 	prev_netstats = networkStats
 
-	// Создаём необходимые директории
 	os.MkdirAll(filepath.Dir(config.NFQ_RULES_DIR), 0755)
 	os.MkdirAll(config.NFQ_RULES_DIR, 0755)
 
-	// Создаём файлы по умолчанию если они не существуют
 	createDefaultFiles()
 
 	dashboard := NewDashboard()
 
 	r := mux.NewRouter()
 
-	// Static
 	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("./static/"))))
 
 	// HTML pages
@@ -220,12 +220,10 @@ func main() {
 }
 
 func createDefaultFiles() {
-	// Создаём файл логов если не существует
 	if _, err := os.Stat(config.NFQ_LOG_FILE); os.IsNotExist(err) {
 		os.WriteFile(config.NFQ_LOG_FILE, []byte(""), 0644)
 	}
 
-	// Создаём файлы статистики если не существуют
 	if _, err := os.Stat(config.NET_STATS_FILE); os.IsNotExist(err) {
 		defaultNetStats := map[string]interface{}{
 			"total":   1488,
@@ -260,25 +258,21 @@ func (d *Dashboard) statsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Dashboard) getSystemStats() (*SystemStats, error) {
-	// CPU статистика
 	cpuPercent, err := cpu.Percent(time.Second, false)
 	if err != nil {
 		return nil, err
 	}
 
-	// RAM статистика
 	memory, err := mem.VirtualMemory()
 	if err != nil {
 		return nil, err
 	}
 
-	// Диск статистика
 	diskStat, err := disk.Usage("/")
 	if err != nil {
 		return nil, err
 	}
 
-	// Сетевая статистика
 	netStats, err := net.IOCounters(true)
 	if err != nil {
 		return nil, err
@@ -349,18 +343,14 @@ func (d *Dashboard) packetStatsHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(stats)
 }
 
-// initLogWatcher инициализирует watcher для файла логов
 func (d *Dashboard) initLogWatcher() {
-	// Получаем текущий размер файла
 	if info, err := os.Stat(config.NFQ_LOG_FILE); err == nil {
 		d.lastLogSize = info.Size()
 	}
 
-	// Запускаем горутину для периодической проверки изменений файла
 	go d.watchLogFile()
 }
 
-// watchLogFile отслеживает изменения в файле логов
 func (d *Dashboard) watchLogFile() {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
@@ -369,7 +359,6 @@ func (d *Dashboard) watchLogFile() {
 		if info, err := os.Stat(config.NFQ_LOG_FILE); err == nil {
 			currentSize := info.Size()
 			if currentSize > d.lastLogSize {
-				// Файл увеличился, читаем новые строки
 				d.readNewLogLines()
 				d.lastLogSize = currentSize
 			}
@@ -377,7 +366,6 @@ func (d *Dashboard) watchLogFile() {
 	}
 }
 
-// readNewLogLines читает новые строки из файла логов
 func (d *Dashboard) readNewLogLines() {
 	file, err := os.Open(config.NFQ_LOG_FILE)
 	if err != nil {
@@ -385,7 +373,6 @@ func (d *Dashboard) readNewLogLines() {
 	}
 	defer file.Close()
 
-	// Переходим к позиции последнего прочитанного байта
 	if _, err := file.Seek(d.lastLogSize, 0); err != nil {
 		return
 	}
@@ -405,7 +392,6 @@ func (d *Dashboard) readNewLogLines() {
 	}
 }
 
-// broadcastLogLines отправляет новые строки логов всем подключенным клиентам
 func (d *Dashboard) broadcastLogLines(lines []string) {
 	d.logClientsMux.RLock()
 	defer d.logClientsMux.RUnlock()
@@ -418,14 +404,12 @@ func (d *Dashboard) broadcastLogLines(lines []string) {
 
 	for client := range d.logClients {
 		if err := client.WriteJSON(message); err != nil {
-			// Клиент отключился, удаляем его
 			delete(d.logClients, client)
 			client.Close()
 		}
 	}
 }
 
-// wsLogsHandler обрабатывает WebSocket соединения для real-time логов
 func (d *Dashboard) wsLogsHandler(w http.ResponseWriter, r *http.Request) {
 	conn, err := d.upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -433,15 +417,12 @@ func (d *Dashboard) wsLogsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Добавляем клиента в список
 	d.logClientsMux.Lock()
 	d.logClients[conn] = true
 	d.logClientsMux.Unlock()
 
-	// Отправляем последние строки логов при подключении
 	d.sendRecentLogs(conn)
 
-	// Обрабатываем сообщения от клиента (в основном для поддержания соединения)
 	defer func() {
 		d.logClientsMux.Lock()
 		delete(d.logClients, conn)
@@ -450,14 +431,12 @@ func (d *Dashboard) wsLogsHandler(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	for {
-		// Читаем сообщения от клиента для поддержания соединения
 		if _, _, err := conn.ReadMessage(); err != nil {
 			break
 		}
 	}
 }
 
-// sendRecentLogs отправляет последние строки логов новому клиенту
 func (d *Dashboard) sendRecentLogs(conn *websocket.Conn) {
 	content, err := os.ReadFile(config.NFQ_LOG_FILE)
 	if err != nil {
@@ -465,7 +444,6 @@ func (d *Dashboard) sendRecentLogs(conn *websocket.Conn) {
 	}
 
 	lines := strings.Split(string(content), "\n")
-	// Отправляем последние 50 строк
 	startIndex := 0
 	if len(lines) > 50 {
 		startIndex = len(lines) - 50
@@ -496,11 +474,9 @@ func (d *Dashboard) restartServiceHandler(w http.ResponseWriter, r *http.Request
 	var cmd *exec.Cmd
 	switch service {
 	case "web":
-		// Перезапуск веб-службы
-		cmd = exec.Command("systemctl", "restart", "gex-web")
+		cmd = exec.Command("sudo", "systemctl", "restart", "gex-web")
 	case "nfq":
-		// Перезапуск NFQ службы
-		cmd = exec.Command("systemctl", "restart", "gex-nfq")
+		cmd = exec.Command("sudo", "systemctl", "restart", "gex-nfq")
 	default:
 		http.Error(w, "Неизвестная служба", http.StatusBadRequest)
 		return

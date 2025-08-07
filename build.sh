@@ -25,6 +25,7 @@ go build -ldflags="-w -s" -o $BUILD_DIR/gex-dashboard .
 
 # Копируем дополнительные файлы
 cp install.sh $BUILD_DIR/
+cp -r static $BUILD_DIR/static
 cp README.md $BUILD_DIR/ 2>/dev/null || true
 chmod +x $BUILD_DIR/install.sh
 

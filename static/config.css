@@ -6,6 +6,18 @@
     border: 1px solid #ddd; 
     border-radius: 4px; 
 }
+
+.CodeMirror {
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    height: 400px;
+    font-size: 14px;
+}
+
+.CodeMirror-scroll {
+    height: 400px;
+}
+
 .message { 
     padding: 10px; 
     margin: 10px 0; 

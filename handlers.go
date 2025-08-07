@@ -59,7 +59,6 @@ func (d *Dashboard) getLogsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Возвращаем последние 1000 строк
 	lines := strings.Split(string(content), "\n")
 	if len(lines) > 1000 {
 		lines = lines[len(lines)-1000:]
@@ -70,37 +69,35 @@ func (d *Dashboard) getLogsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Dashboard) configAPIHandler(w http.ResponseWriter, r *http.Request) {
+	filename := config.NFQ_CONFIG_FILE
 	switch r.Method {
 	case "GET":
-		content, err := os.ReadFile("./config.json")
+		content, err := os.ReadFile(filename)
 		if err != nil {
 			http.Error(w, "Не удалось прочитать конфигурацию", http.StatusInternalServerError)
 			return
 		}
 
-		var config map[string]interface{}
-		if err := json.Unmarshal(content, &config); err != nil {
-			http.Error(w, "Некорректный JSON в конфигурации", http.StatusInternalServerError)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(config)
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write(content)
 
 	case "POST":
-		var config map[string]interface{}
-		if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
-			http.Error(w, "Некорректный JSON", http.StatusBadRequest)
-			return
-		}
-
-		configData, err := json.MarshalIndent(config, "", "    ")
+		content, err := io.ReadAll(r.Body)
 		if err != nil {
-			http.Error(w, "Ошибка сериализации JSON", http.StatusInternalServerError)
+			http.Error(w, "Ошибка чтения данных", http.StatusBadRequest)
 			return
 		}
 
-		if err := os.WriteFile("./config.json", configData, 0644); err != nil {
+		if len(content) > 0 {
+			var jsonData interface{}
+			if err := json.Unmarshal(content, &jsonData); err != nil {
+				log.Printf("Warning: Config contains invalid JSON but will be saved: %v", err)
+			}
+		}
+
+		configData := content
+
+		if err := os.WriteFile(filename, configData, 0644); err != nil {
 			http.Error(w, "Не удалось сохранить конфигурацию", http.StatusInternalServerError)
 			return
 		}
@@ -250,7 +247,6 @@ func (d *Dashboard) ruleAPIHandler(w http.ResponseWriter, r *http.Request) {
 func (d *Dashboard) loadAllRules() ([]Rule, error) {
 	var rules []Rule
 
-	// Читаем все файлы .json из директории rules
 	files, err := os.ReadDir(config.NFQ_RULES_DIR)
 	if err != nil {
 		return rules, err
@@ -260,13 +256,12 @@ func (d *Dashboard) loadAllRules() ([]Rule, error) {
 		if strings.HasSuffix(file.Name(), ".json") {
 			rule, err := d.loadRule(strings.TrimSuffix(file.Name(), ".json"))
 			if err != nil {
-				continue // Пропускаем файлы с ошибками
+				continue
 			}
 			rules = append(rules, *rule)
 		}
 	}
 
-	// Сортируем по ID
 	sort.Slice(rules, func(i, j int) bool {
 		return rules[i].ID < rules[j].ID
 	})
@@ -291,7 +286,6 @@ func (d *Dashboard) loadRule(ruleID string) (*Rule, error) {
 }
 
 func (d *Dashboard) saveRule(rule *Rule) error {
-	// Создаём директорию если не существует
 	if err := os.MkdirAll(config.NFQ_RULES_DIR, 0755); err != nil {
 		return err
 	}
@@ -311,8 +305,6 @@ func (d *Dashboard) deleteRule(ruleID string) error {
 	return os.Remove(filePath)
 }
 
-// Новые обработчики для работы с произвольными файлами правил
-
 func (d *Dashboard) ruleFilesHandler(w http.ResponseWriter, r *http.Request) {
 	files, err := os.ReadDir(config.NFQ_RULES_DIR)
 	if err != nil {
@@ -329,7 +321,6 @@ func (d *Dashboard) ruleFilesHandler(w http.ResponseWriter, r *http.Request) {
 	var filenames []string
 	for _, file := range files {
 		if strings.HasSuffix(file.Name(), ".json") {
-			// Убираем расширение .json из имени
 			filename := strings.TrimSuffix(file.Name(), ".json")
 			filenames = append(filenames, filename)
 		}
@@ -350,7 +341,6 @@ func (d *Dashboard) rawRuleHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	filename := vars["filename"]
 
-	// Защищаемся от path traversal
 	if strings.Contains(filename, "/") || strings.Contains(filename, "\\") || strings.Contains(filename, "..") {
 		response := map[string]interface{}{
 			"success": false,
@@ -382,7 +372,6 @@ func (d *Dashboard) rawRuleHandler(w http.ResponseWriter, r *http.Request) {
 		w.Write(content)
 
 	case "POST", "PUT":
-		// Создаём директорию если не существует
 		if err := os.MkdirAll(config.NFQ_RULES_DIR, 0755); err != nil {
 			response := map[string]interface{}{
 				"success": false,
@@ -394,7 +383,6 @@ func (d *Dashboard) rawRuleHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Читаем содержимое запроса
 		content, err := io.ReadAll(r.Body)
 		if err != nil {
 			response := map[string]interface{}{
@@ -407,17 +395,13 @@ func (d *Dashboard) rawRuleHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Проверяем валидность JSON (только если файл не пустой)
 		if len(content) > 0 {
-			// Попробуем распарсить как JSON
 			var jsonData interface{}
 			if err := json.Unmarshal(content, &jsonData); err != nil {
-				// Если не JSON, то сохраняем как есть, но предупреждаем
 				log.Printf("Warning: File %s contains invalid JSON but will be saved: %v", filename, err)
 			}
 		}
 
-		// Сохраняем файл
 		if err := os.WriteFile(filePath, content, 0644); err != nil {
 			response := map[string]interface{}{
 				"success": false,

@@ -114,13 +114,11 @@
                     const data = JSON.parse(event.data);
                     
                     if (data.type === 'initial_logs') {
-                        // Начальные логи при подключении
                         clearLogs();
                         if (data.lines && data.lines.length > 0) {
                             data.lines.forEach(line => addLogLine(line, false));
                         }
                     } else if (data.type === 'logs') {
-                        // Новые строки логов
                         if (data.lines && data.lines.length > 0) {
                             data.lines.forEach(line => addLogLine(line, true));
                         }
@@ -135,7 +133,6 @@
                 updateStatus('disconnected', 'Отключен');
                 ws = null;
                 
-                // Автоматическое переподключение через 5 секунд
                 scheduleReconnect();
             };
             
@@ -184,7 +181,6 @@
             
             const container = document.getElementById('logContainer');
             
-            // Удаляем empty state если он есть
             const emptyState = container.querySelector('.empty-state');
             if (emptyState) {
                 container.removeChild(emptyState);
@@ -193,7 +189,6 @@
             const logDiv = document.createElement('div');
             const timestamp = new Date().toLocaleTimeString();
             
-            // Определяем тип лога по содержимому
             let logClass = 'log-line';
             if (isNew) logClass += ' new';
             
@@ -212,19 +207,16 @@
             logCount++;
             updateLogCount();
             
-            // Автопрокрутка вниз
             if (autoScroll) {
                 container.scrollTop = container.scrollHeight;
             }
             
-            // Удаляем анимацию после завершения
             if (isNew) {
                 setTimeout(() => {
                     logDiv.classList.remove('new');
                 }, 3000);
             }
             
-            // Ограничиваем количество строк (оставляем последние 1000)
             const logLines = container.querySelectorAll('.log-line');
             if (logLines.length > 1000) {
                 const excess = logLines.length - 1000;
@@ -280,17 +272,14 @@
             document.getElementById('logCount').textContent = `${logCount} строк`;
         }
 
-        // Автоподключение при загрузке страницы
         window.addEventListener('load', function() {
             setTimeout(connectWebSocket, 500);
         });
         
-        // Переподключение при закрытии страницы
         window.addEventListener('beforeunload', function() {
             disconnectWebSocket();
         });
 
-        // Обновляем время каждую секунду
         setInterval(() => {
             updateLogCount();
         }, 1000);

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -133,7 +134,13 @@ func (d *Dashboard) rulesAPIHandler(w http.ResponseWriter, r *http.Request) {
 	case "POST":
 		var rule Rule
 		if err := json.NewDecoder(r.Body).Decode(&rule); err != nil {
-			http.Error(w, "Некорректные данные", http.StatusBadRequest)
+			response := map[string]interface{}{
+				"success": false,
+				"error":   "Некорректные данные: " + err.Error(),
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(response)
 			return
 		}
 
@@ -142,7 +149,13 @@ func (d *Dashboard) rulesAPIHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err := d.saveRule(&rule); err != nil {
-			http.Error(w, "Ошибка сохранения правила", http.StatusInternalServerError)
+			response := map[string]interface{}{
+				"success": false,
+				"error":   "Ошибка сохранения правила: " + err.Error(),
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(response)
 			return
 		}
 
@@ -165,7 +178,13 @@ func (d *Dashboard) ruleAPIHandler(w http.ResponseWriter, r *http.Request) {
 	case "GET":
 		rule, err := d.loadRule(ruleID)
 		if err != nil {
-			http.Error(w, "Правило не найдено", http.StatusNotFound)
+			response := map[string]interface{}{
+				"success": false,
+				"error":   "Правило не найдено: " + err.Error(),
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(response)
 			return
 		}
 
@@ -175,13 +194,25 @@ func (d *Dashboard) ruleAPIHandler(w http.ResponseWriter, r *http.Request) {
 	case "PUT":
 		var rule Rule
 		if err := json.NewDecoder(r.Body).Decode(&rule); err != nil {
-			http.Error(w, "Некорректные данные", http.StatusBadRequest)
+			response := map[string]interface{}{
+				"success": false,
+				"error":   "Некорректные данные: " + err.Error(),
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(response)
 			return
 		}
 
 		rule.ID = ruleID
 		if err := d.saveRule(&rule); err != nil {
-			http.Error(w, "Ошибка сохранения правила", http.StatusInternalServerError)
+			response := map[string]interface{}{
+				"success": false,
+				"error":   "Ошибка сохранения правила: " + err.Error(),
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(response)
 			return
 		}
 
@@ -196,7 +227,13 @@ func (d *Dashboard) ruleAPIHandler(w http.ResponseWriter, r *http.Request) {
 
 	case "DELETE":
 		if err := d.deleteRule(ruleID); err != nil {
-			http.Error(w, "Ошибка удаления правила", http.StatusInternalServerError)
+			response := map[string]interface{}{
+				"success": false,
+				"error":   "Ошибка удаления правила: " + err.Error(),
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(response)
 			return
 		}
 
@@ -272,4 +309,152 @@ func (d *Dashboard) saveRule(rule *Rule) error {
 func (d *Dashboard) deleteRule(ruleID string) error {
 	filePath := filepath.Join(config.NFQ_RULES_DIR, ruleID+".json")
 	return os.Remove(filePath)
+}
+
+// Новые обработчики для работы с произвольными файлами правил
+
+func (d *Dashboard) ruleFilesHandler(w http.ResponseWriter, r *http.Request) {
+	files, err := os.ReadDir(config.NFQ_RULES_DIR)
+	if err != nil {
+		response := map[string]interface{}{
+			"success": false,
+			"files":   []string{},
+			"error":   err.Error(),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	var filenames []string
+	for _, file := range files {
+		if strings.HasSuffix(file.Name(), ".json") {
+			// Убираем расширение .json из имени
+			filename := strings.TrimSuffix(file.Name(), ".json")
+			filenames = append(filenames, filename)
+		}
+	}
+
+	sort.Strings(filenames)
+
+	response := map[string]interface{}{
+		"success": true,
+		"files":   filenames,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+func (d *Dashboard) rawRuleHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	filename := vars["filename"]
+
+	// Защищаемся от path traversal
+	if strings.Contains(filename, "/") || strings.Contains(filename, "\\") || strings.Contains(filename, "..") {
+		response := map[string]interface{}{
+			"success": false,
+			"error":   "Недопустимое имя файла",
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	filePath := filepath.Join(config.NFQ_RULES_DIR, filename+".json")
+
+	switch r.Method {
+	case "GET":
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			response := map[string]interface{}{
+				"success": false,
+				"error":   "Файл не найден: " + err.Error(),
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(response)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write(content)
+
+	case "POST", "PUT":
+		// Создаём директорию если не существует
+		if err := os.MkdirAll(config.NFQ_RULES_DIR, 0755); err != nil {
+			response := map[string]interface{}{
+				"success": false,
+				"error":   "Ошибка создания директории: " + err.Error(),
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(response)
+			return
+		}
+
+		// Читаем содержимое запроса
+		content, err := io.ReadAll(r.Body)
+		if err != nil {
+			response := map[string]interface{}{
+				"success": false,
+				"error":   "Ошибка чтения данных: " + err.Error(),
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(response)
+			return
+		}
+
+		// Проверяем валидность JSON (только если файл не пустой)
+		if len(content) > 0 {
+			// Попробуем распарсить как JSON
+			var jsonData interface{}
+			if err := json.Unmarshal(content, &jsonData); err != nil {
+				// Если не JSON, то сохраняем как есть, но предупреждаем
+				log.Printf("Warning: File %s contains invalid JSON but will be saved: %v", filename, err)
+			}
+		}
+
+		// Сохраняем файл
+		if err := os.WriteFile(filePath, content, 0644); err != nil {
+			response := map[string]interface{}{
+				"success": false,
+				"error":   "Ошибка сохранения файла: " + err.Error(),
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(response)
+			return
+		}
+
+		response := map[string]interface{}{
+			"success": true,
+			"message": "Файл успешно сохранен",
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+
+	case "DELETE":
+		if err := os.Remove(filePath); err != nil {
+			response := map[string]interface{}{
+				"success": false,
+				"error":   "Ошибка удаления файла: " + err.Error(),
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(response)
+			return
+		}
+
+		response := map[string]interface{}{
+			"success": true,
+			"message": "Файл успешно удален",
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}
 }

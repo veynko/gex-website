@@ -1,152 +1,230 @@
-let currentRules = [];
+let currentFiles = [];
+let currentEditingFileName = null;
+let isNewFile = false;
+let codeMirrorEditor = null;
 
-function loadRules() {
-    fetch('/api/rules')
+function loadRuleFiles() {
+    fetch('/api/rules/files')
         .then(response => response.json())
         .then(data => {
-            currentRules = data;
-            if (currentRules === null) {
-                currentRules = [];
-            }
-            renderRulesTable();
+            currentFiles = data.files || [];
+            renderFilesList();
         })
         .catch(error => {
-            console.error('Ошибка загрузки правил:', error);
+            console.error('Ошибка загрузки файлов:', error);
+            document.getElementById('rules-list').innerHTML = '<p style="color: red;">Ошибка загрузки файлов правил</p>';
         });
 }
 
-function renderRulesTable() {
-    const tbody = document.getElementById('rules-tbody');
+function renderFilesList() {
+    const listDiv = document.getElementById('rules-list');
     
-    if (currentRules.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7">Нет правил</td></tr>';
+    if (currentFiles.length === 0) {
+        listDiv.innerHTML = '<p>Нет файлов правил</p>';
         return;
     }
 
-    tbody.innerHTML = currentRules.map(rule => `
-        <tr>
-            <td>${rule.name}</td>
-            <td><span style="color: ${rule.action === 'allow' ? '#27ae60' : '#e74c3c'}">${rule.action === 'allow' ? 'Разрешить' : 'Блокировать'}</span></td>
-            <td>${rule.protocol.toUpperCase()}</td>
-            <td>${rule.sourceIP || 'Любой'}${rule.sourcePort ? ':' + rule.sourcePort : ''}</td>
-            <td>${rule.destIP || 'Любой'}${rule.destPort ? ':' + rule.destPort : ''}</td>
-            <td><span class="${rule.enabled ? 'status-enabled' : 'status-disabled'}">${rule.enabled ? 'Включено' : 'Отключено'}</span></td>
-            <td>
-                <button class="btn btn-warning" onclick="editRule('${rule.id}')">Изменить</button>
-                <button class="btn btn-danger" onclick="deleteRule('${rule.id}')">Удалить</button>
-            </td>
-        </tr>
+    listDiv.innerHTML = currentFiles.map(filename => `
+        <div class="rule-file">
+            <span class="rule-file-name">${filename}.json</span>
+            <div>
+                <button class="btn btn-warning" onclick="editFile('${filename}')">Редактировать</button>
+                <button class="btn btn-danger" onclick="deleteFile('${filename}')">Удалить</button>
+            </div>
+        </div>
     `).join('');
 }
 
-function openModal(ruleId = null) {
-    const modal = document.getElementById('rule-modal');
-    const form = document.getElementById('rule-form');
-    const title = document.getElementById('modal-title');
+function createNewFile() {
+    isNewFile = true;
+    currentEditingFileName = null;
     
-    form.reset();
-    document.getElementById('rule-enabled').checked = true;
+    document.getElementById('editor-title').textContent = 'Создание нового файла';
+    document.getElementById('rule-filename').value = '';
     
-    if (ruleId) {
-        const rule = currentRules.find(r => r.id === ruleId);
-        if (rule) {
-            title.textContent = 'Редактировать правило';
-            document.getElementById('rule-id').value = rule.id;
-            document.getElementById('rule-name').value = rule.name;
-            document.getElementById('rule-action').value = rule.action;
-            document.getElementById('rule-protocol').value = rule.protocol;
-            document.getElementById('rule-source-ip').value = rule.sourceIP || '';
-            document.getElementById('rule-dest-ip').value = rule.destIP || '';
-            document.getElementById('rule-source-port').value = rule.sourcePort || '';
-            document.getElementById('rule-dest-port').value = rule.destPort || '';
-            document.getElementById('rule-enabled').checked = rule.enabled;
-            document.getElementById('rule-description').value = rule.description || '';
-        }
-    } else {
-        title.textContent = 'Новое правило';
-        document.getElementById('rule-id').value = '';
-    }
+    // Предлагаем базовый JSON шаблон
+    const baseTemplate = {
+        "name": "Новое правило",
+        "action": "allow", 
+        "protocol": "tcp",
+        "enabled": true,
+        "description": ""
+    };
     
-    modal.style.display = 'block';
+    document.getElementById('filename-group').style.display = 'block';
+    document.getElementById('json-editor-modal').style.display = 'block';
+    
+    // Инициализируем CodeMirror после показа модального окна
+    setTimeout(() => {
+        initCodeMirror(JSON.stringify(baseTemplate, null, 2));
+    }, 100);
 }
 
-function closeModal() {
-    document.getElementById('rule-modal').style.display = 'none';
-}
-
-function editRule(ruleId) {
-    openModal(ruleId);
-}
-
-function deleteRule(ruleId) {
-    if (confirm('Вы уверены, что хотите удалить это правило?')) {
-        fetch('/api/rules/' + ruleId, {
-            method: 'DELETE'
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                loadRules();
-            } else {
-                alert('Ошибка удаления: ' + (data.error || 'Неизвестная ошибка'));
-            }
+function editFile(filename) {
+    isNewFile = false;
+    currentEditingFileName = filename;
+    
+    document.getElementById('editor-title').textContent = 'Редактирование: ' + filename + '.json';
+    document.getElementById('rule-filename').value = filename;
+    document.getElementById('filename-group').style.display = 'none';
+    
+    document.getElementById('json-editor-modal').style.display = 'block';
+    
+    // Загружаем содержимое файла
+    fetch('/api/rules/raw/' + filename)
+        .then(response => response.text())
+        .then(content => {
+            // Инициализируем CodeMirror с загруженным содержимым
+            setTimeout(() => {
+                initCodeMirror(content);
+            }, 100);
         })
         .catch(error => {
-            alert('Ошибка удаления: ' + error.message);
+            alert('Ошибка загрузки файла: ' + error.message);
         });
+}
+
+function deleteFile(filename) {
+    if (!confirm(`Вы уверены, что хотите удалить файл "${filename}.json"?`)) {
+        return;
     }
+    
+    fetch('/api/rules/raw/' + filename, {
+        method: 'DELETE'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            loadRuleFiles(); // Перезагружаем список файлов
+        } else {
+            alert('Ошибка удаления: ' + (data.error || 'Неизвестная ошибка'));
+        }
+    })
+    .catch(error => {
+        alert('Ошибка удаления: ' + error.message);
+    });
+}
+
+function closeJsonEditor() {
+    document.getElementById('json-editor-modal').style.display = 'none';
+    currentEditingFileName = null;
+    isNewFile = false;
+    
+    // Уничтожаем CodeMirror экземпляр
+    if (codeMirrorEditor) {
+        codeMirrorEditor.toTextArea();
+        codeMirrorEditor = null;
+    }
+}
+
+function initCodeMirror(initialValue) {
+    // Уничтожаем предыдущий экземпляр если есть
+    if (codeMirrorEditor) {
+        codeMirrorEditor.toTextArea();
+        codeMirrorEditor = null;
+    }
+    
+    const textarea = document.getElementById('rule-json-editor');
+    textarea.value = initialValue || '{}';
+    
+    codeMirrorEditor = CodeMirror.fromTextArea(textarea, {
+        mode: { name: "javascript", json: true },
+        theme: "material",
+        lineNumbers: true,
+        autoCloseBrackets: true,
+        matchBrackets: true,
+        indentUnit: 2,
+        tabSize: 2,
+        foldGutter: true,
+        gutters: ["CodeMirror-linenumbers", "CodeMirror-foldgutter"],
+        extraKeys: {
+            "Ctrl-Q": function(cm) { cm.foldCode(cm.getCursor()); },
+            "Ctrl-Space": "autocomplete"
+        }
+    });
+    
+    // Форматируем JSON при инициализации
+    try {
+        const parsed = JSON.parse(initialValue || '{}');
+        const formatted = JSON.stringify(parsed, null, 2);
+        codeMirrorEditor.setValue(formatted);
+    } catch (e) {
+        // Если JSON невалидный, оставляем как есть
+        codeMirrorEditor.setValue(initialValue || '{}');
+    }
+}
+
+function saveCurrentRule() {
+    // Получаем текст из CodeMirror
+    const jsonText = codeMirrorEditor ? codeMirrorEditor.getValue() : document.getElementById('rule-json-editor').value;
+    
+    // Проверяем валидность JSON, но позволяем сохранить даже невалидный
+    let isValidJson = true;
+    try {
+        if (jsonText.trim() !== '') {
+            JSON.parse(jsonText);
+        }
+    } catch (error) {
+        isValidJson = false;
+        if (!confirm('Содержимое не является валидным JSON:\n' + error.message + '\n\nВы хотите сохранить файл как есть?')) {
+            return;
+        }
+    }
+    
+    let filename;
+    if (isNewFile) {
+        filename = document.getElementById('rule-filename').value.trim();
+        if (!filename) {
+            alert('Введите имя файла');
+            return;
+        }
+        // Убираем .json если пользователь его добавил
+        filename = filename.replace(/\.json$/, '');
+    } else {
+        filename = currentEditingFileName;
+    }
+    
+    const url = '/api/rules/raw/' + filename;
+    const method = isNewFile ? 'POST' : 'PUT';
+    
+    fetch(url, {
+        method: method,
+        headers: {
+            'Content-Type': 'text/plain'
+        },
+        body: jsonText
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            closeJsonEditor();
+            loadRuleFiles(); // Перезагружаем список файлов
+            if (!isValidJson) {
+                alert('Файл сохранен, но содержит невалидный JSON');
+            }
+        } else {
+            alert('Ошибка сохранения: ' + (data.error || 'Неизвестная ошибка'));
+        }
+    })
+    .catch(error => {
+        alert('Ошибка сохранения: ' + error.message);
+    });
+}
+
+// Переименовываем функцию для совместимости с HTML
+function createNewRule() {
+    createNewFile();
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-    document.getElementById('rule-form').addEventListener('submit', function(e) {
-        e.preventDefault();
-        
-        const ruleId = document.getElementById('rule-id').value;
-        const ruleData = {
-            id: ruleId || 'rule_' + Date.now(),
-            name: document.getElementById('rule-name').value,
-            action: document.getElementById('rule-action').value,
-            protocol: document.getElementById('rule-protocol').value,
-            sourceIP: document.getElementById('rule-source-ip').value,
-            destIP: document.getElementById('rule-dest-ip').value,
-            sourcePort: parseInt(document.getElementById('rule-source-port').value) || 0,
-            destPort: parseInt(document.getElementById('rule-dest-port').value) || 0,
-            enabled: document.getElementById('rule-enabled').checked,
-            description: document.getElementById('rule-description').value
-        };
-        
-        const url = ruleId ? '/api/rules/' + ruleId : '/api/rules';
-        const method = ruleId ? 'PUT' : 'POST';
-        
-        fetch(url, {
-            method: method,
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(ruleData)
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                closeModal();
-                loadRules();
-            } else {
-                alert('Ошибка сохранения: ' + (data.error || 'Неизвестная ошибка'));
-            }
-        })
-        .catch(error => {
-            alert('Ошибка сохранения: ' + error.message);
-        });
-    });
-
     // Закрытие модального окна по клику вне его
     window.onclick = function(event) {
-        const modal = document.getElementById('rule-modal');
+        const modal = document.getElementById('json-editor-modal');
         if (event.target == modal) {
-            closeModal();
+            closeJsonEditor();
         }
     };
 
-    // Загружаем правила при загрузке страницы
-    loadRules();
+    // Загружаем файлы при загрузке страницы
+    loadRuleFiles();
 });

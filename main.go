@@ -203,6 +203,8 @@ func main() {
 	r.HandleFunc("/api/stats", dashboard.statsHandler)
 	r.HandleFunc("/api/logs", dashboard.getLogsHandler)
 	r.HandleFunc("/api/config", dashboard.configAPIHandler).Methods("GET", "POST")
+	r.HandleFunc("/api/rules/files", dashboard.ruleFilesHandler).Methods("GET")
+	r.HandleFunc("/api/rules/raw/{filename}", dashboard.rawRuleHandler).Methods("GET", "POST", "PUT", "DELETE")
 	r.HandleFunc("/api/rules", dashboard.rulesAPIHandler).Methods("GET", "POST")
 	r.HandleFunc("/api/rules/{id}", dashboard.ruleAPIHandler).Methods("GET", "PUT", "DELETE")
 	r.HandleFunc("/api/packet-stats", dashboard.packetStatsHandler)

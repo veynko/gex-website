@@ -23,7 +23,7 @@ import (
 const (
 	APP_DIR      = "/opt/gex"
 	NFQ_DIR      = "/opt/nfq"
-	NFQ_LOG_FILE = "./test_log.txt" // Используем локальный файл для тестирования
+	NFQ_LOG_FILE = "./test_log.txt"
 	CONFIG_FILE  = APP_DIR + "/config.json"
 	RULES_DIR    = APP_DIR + "/rules"
 )
@@ -83,39 +83,30 @@ func NewDashboard() *Dashboard {
 		logClients: make(map[*websocket.Conn]bool),
 	}
 
-	// Инициализируем watcher для файла логов
 	d.initLogWatcher()
 
 	return d
 }
 
 func main() {
-	// Создаём необходимые директории если их нет
 	os.MkdirAll(APP_DIR, 0755)
 	os.MkdirAll(RULES_DIR, 0755)
-
-	// Создаём файлы по умолчанию если они не существуют
 	createDefaultFiles()
 
 	dashboard := NewDashboard()
 
 	r := mux.NewRouter()
 
-	// Статические файлы (веб-интерфейс)
+	// Static
 	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("./static/"))))
 
-	// Главная страница - редирект на статический файл
-	// r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-	// 	http.Redirect(w, r, "/static/index.html", http.StatusMovedPermanently)
-	// })
-
-	// HTML страницы
+	// HTML pages
 	r.HandleFunc("/", dashboard.mainHandler)
 	r.HandleFunc("/config", dashboard.configHandler)
 	r.HandleFunc("/logs", dashboard.logsHandler)
 	r.HandleFunc("/rules", dashboard.rulesHandler)
 
-	// API маршруты
+	// API
 	r.HandleFunc("/api/stats", dashboard.statsHandler)
 	r.HandleFunc("/api/logs", dashboard.getLogsHandler)
 	r.HandleFunc("/api/config", dashboard.configAPIHandler).Methods("GET", "POST")
@@ -124,7 +115,7 @@ func main() {
 	r.HandleFunc("/api/packet-stats", dashboard.packetStatsHandler)
 	r.HandleFunc("/api/restart/{service}", dashboard.restartServiceHandler).Methods("POST")
 
-	// WebSocket для real-time обновлений
+	// WebSocket
 	r.HandleFunc("/ws/stats", dashboard.wsStatsHandler)
 	r.HandleFunc("/ws/logs", dashboard.wsLogsHandler)
 
@@ -134,7 +125,6 @@ func main() {
 }
 
 func createDefaultFiles() {
-	// Создаём config.json по умолчанию
 	if _, err := os.Stat(CONFIG_FILE); os.IsNotExist(err) {
 		defaultConfig := map[string]interface{}{
 			"interface":  "eth0",
@@ -146,7 +136,6 @@ func createDefaultFiles() {
 		os.WriteFile(CONFIG_FILE, configData, 0644)
 	}
 
-	// Создаём log.txt если не существует
 	if _, err := os.Stat(NFQ_LOG_FILE); os.IsNotExist(err) {
 		os.WriteFile(NFQ_LOG_FILE, []byte(""), 0644)
 	}
@@ -211,48 +200,6 @@ func (d *Dashboard) getSystemStats() (*SystemStats, error) {
 	}
 
 	return stats, nil
-}
-
-func (d *Dashboard) wsStatsHandler(w http.ResponseWriter, r *http.Request) {
-	conn, err := d.upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Printf("WebSocket upgrade error: %v", err)
-		return
-	}
-	defer conn.Close()
-
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		stats, err := d.getSystemStats()
-		if err != nil {
-			log.Printf("Error getting stats: %v", err)
-			continue
-		}
-
-		if err := conn.WriteJSON(stats); err != nil {
-			log.Printf("WebSocket write error: %v", err)
-			return
-		}
-	}
-}
-
-func (d *Dashboard) getLogsHandler(w http.ResponseWriter, r *http.Request) {
-	content, err := os.ReadFile(NFQ_LOG_FILE)
-	if err != nil {
-		http.Error(w, "Не удалось прочитать файл логов", http.StatusInternalServerError)
-		return
-	}
-
-	// Возвращаем последние 1000 строк
-	lines := strings.Split(string(content), "\n")
-	if len(lines) > 1000 {
-		lines = lines[len(lines)-1000:]
-	}
-
-	w.Header().Set("Content-Type", "text/plain")
-	w.Write([]byte(strings.Join(lines, "\n")))
 }
 
 func (d *Dashboard) packetStatsHandler(w http.ResponseWriter, r *http.Request) {

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,12 +18,53 @@ func (d *Dashboard) mainHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "./static/index.html")
 }
 
+func (d *Dashboard) wsStatsHandler(w http.ResponseWriter, r *http.Request) {
+	conn, err := d.upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("WebSocket upgrade error: %v", err)
+		return
+	}
+	defer conn.Close()
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		stats, err := d.getSystemStats()
+		if err != nil {
+			log.Printf("Error getting stats: %v", err)
+			continue
+		}
+
+		if err := conn.WriteJSON(stats); err != nil {
+			log.Printf("WebSocket write error: %v", err)
+			return
+		}
+	}
+}
+
 func (d *Dashboard) configHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "./static/config.html")
 }
 
 func (d *Dashboard) logsHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "./static/logs.html")
+}
+
+func (d *Dashboard) getLogsHandler(w http.ResponseWriter, r *http.Request) {
+	content, err := os.ReadFile(NFQ_LOG_FILE)
+	if err != nil {
+		http.Error(w, "Не удалось прочитать файл логов", http.StatusInternalServerError)
+		return
+	}
+
+	lines := strings.Split(string(content), "\n")
+	if len(lines) > 1000 {
+		lines = lines[len(lines)-1000:]
+	}
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.Write([]byte(strings.Join(lines, "\n")))
 }
 
 func (d *Dashboard) configAPIHandler(w http.ResponseWriter, r *http.Request) {

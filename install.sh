@@ -48,7 +48,7 @@ echo "Создание правил sudoers для перезапуска слу
 cat > /etc/sudoers.d/gex-services << EOF
 # Разрешить пользователю gex перезапускать службы GEX
 $SERVICE_USER ALL=(ALL) NOPASSWD: /bin/systemctl restart gex-web
-$SERVICE_USER ALL=(ALL) NOPASSWD: /bin/systemctl restart gex-nfq
+$SERVICE_USER ALL=(ALL) NOPASSWD: /bin/systemctl restart ips
 EOF
 
 # Установка правильных прав доступа для файла sudoers

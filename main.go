@@ -476,7 +476,7 @@ func (d *Dashboard) restartServiceHandler(w http.ResponseWriter, r *http.Request
 	case "web":
 		cmd = exec.Command("sudo", "systemctl", "restart", "gex-web")
 	case "nfq":
-		cmd = exec.Command("sudo", "systemctl", "restart", "gex-nfq")
+		cmd = exec.Command("sudo", "systemctl", "restart", "ips")
 	default:
 		http.Error(w, "Неизвестная служба", http.StatusBadRequest)
 		return

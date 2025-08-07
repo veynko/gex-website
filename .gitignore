@@ -34,3 +34,4 @@ gex-dashboard
 config.json
 tmp/
 build/
+gex-dashboard-linux_arm64.tar.gz
